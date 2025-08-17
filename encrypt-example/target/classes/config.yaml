@@ -1,0 +1,91 @@
+# 核心功能解读:
+#
+# 1. 规则 (rules):
+#    - !ENCRYPT -> 声明这是一个数据加密规则。
+#
+# 2. 表配置 (tables):
+#    - t_order & t_order_item -> 指定加密规则作用于这两张表。
+#
+# 3. 列配置 (columns):
+#    - 针对 t_order 表的 status 列:
+#      - cipher:
+#        - name: status -> 这是密文列，数据库中实际存储加密后数据的列名。
+#        - encryptorName: standard_encryptor -> 指定使用名为 "standard_encryptor" 的加密器。
+#      - assistedQuery:
+#        - name: status_assisted -> 这是辅助查询列。为了能对加密数据进行查询，ShardingSphere 会用另一个加密器对原始数据进行哈希（或类似处理），
+#          并将结果存入此列。查询时，ShardingSphere 会对查询条件做同样处理，
+#          然后去匹配这个辅助查询列，从而实现对加密数据的查询。
+#        - encryptorName: assisted_encryptor -> 指定辅助查询使用的加密器。
+#    - 针对 t_order_item 表的 phone 列:
+#      - cipher:
+#        - name: phone -> 密文列是 phone 列本身。
+#        - encryptorName: standard_encryptor -> 同样使用 "standard_encryptor" 加密器。
+#
+# 4. 加密器 (encryptors):
+#    - standard_encryptor:
+#      - type: AES -> 使用 AES 加密算法，这是一种对称加密算法。
+#      - props:
+#        - aes-key-value: 123456 -> AES 加密所需的密钥，非常重要，需要妥善保管。
+#        - digest-algorithm-name: SHA-1 -> (可选) 与密钥派生相关的摘要算法。
+#    - assisted_encryptor:
+#      - type: assistedTest -> 这是一个用于测试的辅助查询加密器类型。
+#        在实际生产中，通常会使用 MD5 或其他单向哈希算法。
+#
+# 最终效果:
+# - 当你向 t_order 表插入一条 status 为 "PAID" 的记录时，数据库的 `status` 列会存入一串AES加密后的密文，
+#   同时 `status_assisted` 列会存入 "PAID" 经过 "assisted_encryptor" 处理后的值。
+# - 当你执行 `SELECT * FROM t_order WHERE status = 'PAID'` 时，ShardingSphere 会自动将 SQL 改写为
+#   `SELECT status, ... FROM t_order WHERE status_assisted = 'assisted_encryptor处理后的PAID值'`，
+#   查到数据后，再从 `status` 列取出密文并解密，最终返回给你 "PAID" 这个原始值。
+# =================================================================
+
+# 模式配置
+mode:
+  type: Standalone
+  repository:
+    type: JDBC
+    props:
+      path: demo
+
+# 数据源配置
+dataSources:
+  ds_0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/demo_ds?serverTimezone=UTC&useSSL=false&useUnicode=true&characterEncoding=UTF-8
+    username: root
+    password: your_strong_root_password
+    maxPoolSize: 10
+
+# 规则配置
+rules:
+- !ENCRYPT
+  tables:
+    t_order:
+      columns:
+        status:
+          cipher:
+            name: status
+            encryptorName: standard_encryptor
+          assistedQuery:
+            name: status_assisted
+            encryptorName: assisted_encryptor
+    t_order_item:
+      columns:
+        phone:
+          cipher:
+            name: phone
+            encryptorName: standard_encryptor
+
+  encryptors:
+    standard_encryptor:
+      type: AES
+      props:
+        aes-key-value: 123456
+        digest-algorithm-name: SHA-1
+    assisted_encryptor:
+      type: assistedTest
+
+# 全局属性
+props:
+  sql-show: true
