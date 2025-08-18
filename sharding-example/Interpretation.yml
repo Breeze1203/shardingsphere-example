@@ -1,0 +1,116 @@
+# 模式配置
+mode:
+  # ShardingSphere 的工作模式。Standalone 表示独立模式，适用于单个应用实例。
+  # 另一种是 Cluster 模式，用于需要高可用的分布式部署。
+  type: Standalone
+  # 元数据持久化仓库配置。用于存储规则等信息。
+  repository:
+    # 指定使用 JDBC (关系型数据库) 来存储元数据。
+    type: JDBC
+    props:
+      # 在 JDBC 仓库中，用于存储元数据的数据库 schema 或路径。
+      path: demo
+
+# 数据源配置，定义了所有真实的物理数据库连接。
+dataSources:
+  # 数据源逻辑名称 ds_0
+  ds_0:
+    # 指定使用 HikariCP 作为数据库连接池，这是一个高性能的连接池。
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    # MySQL 数据库驱动。
+    driverClassName: com.mysql.jdbc.Driver
+    # 连接到名为 demo_ds_0 的数据库。
+    jdbcUrl: jdbc:mysql://localhost:3306/demo_ds_0?serverTimezone=UTC&useSSL=false&useUnicode=true&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    username: root
+    password: your_strong_root_password
+    # 该连接池的最大连接数。
+    maxPoolSize: 10
+  # 数据源逻辑名称 ds_1，连接到 demo_ds_1 数据库。
+  ds_1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/demo_ds_1?serverTimezone=UTC&useSSL=false&useUnicode=true&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    username: root
+    password: your_strong_root_password
+    maxPoolSize: 10
+
+# 核心规则列表
+rules:
+  # 1. 分片规则 (!SHARDING)
+  - !SHARDING
+    # 需要分片的逻辑表配置
+    tables:
+      # 针对 t_order 表的配置
+      t_order:
+        # 实际数据节点：ds_0 和 ds_1 库中的 t_order_0 和 t_order_1 表。
+        # 共 2 (库) * 2 (表) = 4 个物理表。
+        actualDataNodes: ds_$->{0..1}.t_order_$->{0..1}
+        # 分表策略
+        tableStrategy:
+          standard:
+            # 分表依据的列
+            shardingColumn: order_id
+            # 分表使用的算法名称
+            shardingAlgorithmName: t_order_inline
+        # 分布式主键生成策略
+        keyGenerateStrategy:
+          # 需要自动生成主键的列
+          column: order_id
+          # 主键生成器名称
+          keyGeneratorName: snowflake_generator
+      # 针对 t_order_item 表的配置 (逻辑同上)
+      t_order_item:
+        actualDataNodes: ds_$->{0..1}.t_order_item_$->{0..1}
+        tableStrategy:
+          standard:
+            shardingColumn: order_id
+            shardingAlgorithmName: t_order_item_inline
+        keyGenerateStrategy:
+          column: order_item_id
+          keyGeneratorName: snowflake_generator
+    # 绑定表配置。确保 t_order 和 t_order_item 的关联查询落在同一个物理库中。
+    bindingTables:
+      - t_order,t_order_item
+    # 默认分库策略。如果表没有单独配置分库策略，则使用此策略。
+    defaultDatabaseStrategy:
+      standard:
+        # 默认按 user_id 进行分库
+        shardingColumn: user_id
+        shardingAlgorithmName: database_inline
+
+    # 分片算法定义
+    shardingAlgorithms:
+      # 'database_inline' 算法：按 user_id 取模 2 来决定数据放入 ds_0 还是 ds_1。
+      database_inline:
+        type: INLINE
+        props:
+          algorithm-expression: ds_${user_id % 2}
+      # 't_order_inline' 算法：按 order_id 取模 2 来决定数据放入 t_order_0 还是 t_order_1。
+      t_order_inline:
+        type: INLINE
+        props:
+          algorithm-expression: t_order_$->{order_id % 2}
+      # 't_order_item_inline' 算法：逻辑同上。
+      t_order_item_inline:
+        type: INLINE
+        props:
+          algorithm-expression: t_order_item_$->{order_id % 2}
+    # 分布式主键生成器定义
+    keyGenerators:
+      # 'snowflake_generator'：使用雪花算法生成全局唯一的 ID。
+      snowflake_generator:
+        type: SNOWFLAKE
+
+  # 2. 广播表规则 (!BROADCAST)
+  - !BROADCAST
+    # 将 t_address 定义为广播表。
+    # 这意味着 t_address 表的完整副本会存在于所有数据源 (ds_0, ds_1) 中。
+    # 适用于数据量小且需要频繁与分片表关联查询的字典表。
+    tables:
+      - t_address
+
+# 系统级属性配置
+props:
+  # 是否在日志中打印 ShardingSphere 路由和改写后的真实 SQL。
+  # true 表示开启，非常适用于开发和调试阶段。
+  sql-show: true
