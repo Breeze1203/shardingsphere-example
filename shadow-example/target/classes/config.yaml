@@ -1,0 +1,63 @@
+# =================================================================
+# ShardingSphere 纯内容驱动影子库 (Shadow Database) 配置文件
+# (修正版)
+# =================================================================
+
+# 模式配置
+mode:
+  type: Standalone
+  repository:
+    type: JDBC
+    props:
+      path: demo
+
+# 数据源配置
+dataSources:
+  ds_0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/demo_ds_0?serverTimezone=UTC&useSSL=false&useUnicode=true&characterEncoding=UTF-8
+    username: root
+    password: your_strong_root_password
+    maxPoolSize: 10
+  ds_1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/demo_ds_1?serverTimezone=UTC&useSSL=false&useUnicode=true&characterEncoding=UTF-8
+    username: root
+    password: your_strong_root_password
+    maxPoolSize: 10
+
+# 规则配置 (只保留影子库规则)
+rules:
+- !SHADOW
+  dataSources:
+    shadow_group:
+      productionDataSourceName: ds_0
+      shadowDataSourceName: ds_1
+  tables:
+    t_order:
+      dataSourceNames:
+        - shadow_group
+      shadowAlgorithmNames:
+        - content_based_algorithm
+  shadowAlgorithms:
+    content_based_algorithm:
+      type: VALUE_MATCH
+      props:
+        operation: insert
+        column: order_type
+        value: 1
+
+- !SHARDING
+  tables:
+    t_order:
+      actualDataNodes: ds_0.t_order
+    t_order_item:
+      actualDataNodes: ds_0.t_order_item
+    t_address:
+      actualDataNodes: ds_0.t_address
+
+# 全局属性
+props:
+  sql-show: true
